@@ -97,13 +97,12 @@ const positionWithinElement = (x: number, y: number, element: IElement) => {
       const c = { x, y };
       const offset = distance(a, b) - (distance(a, c) + distance(b, c));
       if (Math.abs(offset) < 2) {
-        inside = "found";
+        inside = "inside";
       }
     }
-
     const start = nearPoint(x, y, x1, y1, "start");
     const end = nearPoint(x, y, x2, y2, "end");
-    return inside || start || end;
+    return inside;
   } else if (element.type === "Line") {
     const { x1, x2, y1, y2 } = element;
     const a = { x: x1, y: y1 };
@@ -212,14 +211,22 @@ const App = () => {
       const maxX = Math.max(x1, x2);
       const minY = Math.min(y1, y2);
       const maxY = Math.max(y1, y2);
-      return { x1: minX, y1: minY, x2: maxX, y2: maxY };
+      return { x1: minX, y1: minY, x2: maxX, y2: maxY, path: element.path };
     } else if (element.type === "Line") {
-      if (x1 < x2 || (x1 === x2 && y2 <= y1)) return { x1, x2, y1, y2 };
+      if (x1 < x2 || (x1 === x2 && y2 <= y1))
+        return { x1, x2, y1, y2, path: element.path };
       else {
-        return { x1: x2, x2: x1, y1: y2, y2: y1 };
+        return { x1: x2, x2: x1, y1: y2, y2: y1, path: element.path };
+      }
+    } else if (element.type === "Pen") {
+      if (x1 < x2 || (x1 === x2 && y2 <= y1))
+        return { x1, x2, y1, y2, path: element.path };
+      else {
+        const temp = [...element.path];
+        return { x1: x2, x2: x1, y1: y2, y2: y1, path: temp.reverse() };
       }
     }
-    return { x1, x2, y1, y2 };
+    return { x1, x2, y1, y2, path: element.path };
   };
 
   useLayoutEffect(() => {
@@ -332,14 +339,15 @@ const App = () => {
   const handleMouseUp: MouseEventHandler = (event: MouseEvent) => {
     if (action === "drawing" || action === "resizing") {
       if (!selectedElement) return;
-      const { id, type, path } = elements[selectedElement.id];
-      const { x1, y1, x2, y2 } = adjustElementCoordinates(
+      const { id, type } = elements[selectedElement.id];
+      const { x1, y1, x2, y2, path } = adjustElementCoordinates(
         elements[selectedElement.id]
       );
       updateElement(id, x1, y1, x2, y2, type, path);
     }
     setAction("none");
     setSelectedElement(null);
+    setSelectedTool("Selection");
   };
 
   return (
