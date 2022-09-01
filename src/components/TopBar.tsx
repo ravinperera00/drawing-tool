@@ -14,8 +14,8 @@ export const TopBar: React.FC<IProps> = ({
   clearHandler,
 }) => {
   return (
-    <div className="h-[6%]  fixed left-[50%] translate-x-[-50%] top-0 flex items-center justify-center">
-      <div className="rounded-md shadow-md flex items-center mt-4 px-4 gap-2 w-full h-full border-solid border-black border-2">
+    <div className="h-[6%]  fixed w-screen top-0 flex items-center justify-center">
+      <div className="rounded-md shadow-md flex items-center mt-4 px-4 gap-2 h-full border-solid border-black border-2">
         {topBarLinks.map((link, index) => (
           <TopBarButton
             icon={link.icon}
@@ -27,7 +27,7 @@ export const TopBar: React.FC<IProps> = ({
         ))}
       </div>
       <div
-        className=" hover:bg-gray-200 bg-white shadow-md hover:text-red-400 text-black flex items-center justify-center text-3xl h-[80%] px-2 mx-2 mt-4 rounded-full "
+        className="absolute right-0 hover:bg-gray-200 bg-white shadow-md hover:text-red-400 text-black flex items-center justify-center text-3xl h-[80%] px-2 mx-2 mt-4 rounded-full "
         onClick={clearHandler}
       >
         <MdClear />
