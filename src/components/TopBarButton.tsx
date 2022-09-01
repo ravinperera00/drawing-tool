@@ -1,5 +1,4 @@
 import React from "react";
-import { IconType } from "react-icons";
 
 interface IProps {
   icon: React.ReactElement;

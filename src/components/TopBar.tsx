@@ -1,4 +1,3 @@
-import { useState } from "react";
 import topBarLinks from "../links/topBarLinks";
 import { TopBarButton } from "./TopBarButton";
 import { MdClear } from "react-icons/md";
@@ -28,7 +27,7 @@ export const TopBar: React.FC<IProps> = ({
         ))}
       </div>
       <div
-        className=" bg-white shadow-md hover:text-red-400 text-black flex items-center justify-center text-3xl h-[80%] px-2 mx-2 mt-4 rounded-full "
+        className=" hover:bg-gray-200 bg-white shadow-md hover:text-red-400 text-black flex items-center justify-center text-3xl h-[80%] px-2 mx-2 mt-4 rounded-full "
         onClick={clearHandler}
       >
         <MdClear />
