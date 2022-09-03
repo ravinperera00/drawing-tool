@@ -347,7 +347,6 @@ const App = () => {
     }
     setAction("none");
     setSelectedElement(null);
-    setSelectedTool("Selection");
   };
 
   return (
