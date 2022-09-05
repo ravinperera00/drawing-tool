@@ -1,39 +1,21 @@
-import React, {
+import {
   MouseEvent,
   MouseEventHandler,
+  useEffect,
   useLayoutEffect,
   useState,
 } from "react";
 import { TopBar } from "./components";
 import rough from "roughjs/bundled/rough.esm";
-import { Drawable } from "roughjs/bin/core";
 import { RoughGenerator } from "roughjs/bin/generator";
 import { Point } from "roughjs/bin/geometry";
-
-type TAction = "drawing" | "moving" | "none" | "resizing";
-
-interface IElement {
-  id: number;
-  x1: number;
-  x2: number;
-  y1: number;
-  y2: number;
-  roughElement: Drawable;
-  path: Array<Point>;
-  type: string;
-}
-
-interface IDistanceArg {
-  x: number;
-  y: number;
-}
-
-interface ISelectedElement {
-  position: string | null;
-  offsetX: number;
-  offsetY: number;
-  pathOffset: Array<Array<number>>;
-}
+import {
+  ISelectedElement,
+  IDistanceArg,
+  IElement,
+  TAction,
+} from "./interfaces";
+import { useHistory } from "./hooks/useHistory";
 
 const generator: RoughGenerator = rough.generator();
 
@@ -87,7 +69,6 @@ const positionWithinElement = (x: number, y: number, element: IElement) => {
     const inside = x >= x1 && x <= x2 && y >= y1 && y <= y2 ? "inside" : null;
     return tl || bl || tr || br || inside;
   } else if (element.type === "Pen") {
-    const { x1, x2, y1, y2 } = element;
     let inside = null;
     for (let i = 0; i < element.path.length - 1; i++) {
       const point1 = element.path[i];
@@ -100,8 +81,6 @@ const positionWithinElement = (x: number, y: number, element: IElement) => {
         inside = "inside";
       }
     }
-    const start = nearPoint(x, y, x1, y1, "start");
-    const end = nearPoint(x, y, x2, y2, "end");
     return inside;
   } else if (element.type === "Line") {
     const { x1, x2, y1, y2 } = element;
@@ -170,7 +149,9 @@ const getElementAtPosition = (
 };
 
 const App = () => {
-  const [elements, setElements] = useState<IElement[]>([]);
+  const [elements, setElements, undo, redo, clearHistory] = useHistory(
+    [] as Array<IElement>
+  );
   const [action, setAction] = useState<TAction>("none");
   const [selectedTool, setSelectedTool] = useState<string>("Line");
   const [selectedElement, setSelectedElement] = useState<
@@ -201,7 +182,7 @@ const App = () => {
     );
     const copyElements = [...elements];
     copyElements[id] = updatedElement;
-    setElements(copyElements);
+    setElements(copyElements, true);
   };
 
   const adjustElementCoordinates = (element: IElement) => {
@@ -240,6 +221,23 @@ const App = () => {
     });
   }, [elements]);
 
+  useEffect(() => {
+    const undoRedoFuncton = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "z") {
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+      }
+    };
+
+    document.addEventListener("keydown", undoRedoFuncton);
+    return () => {
+      document.removeEventListener("keydown", undoRedoFuncton);
+    };
+  }, [redo, undo]);
+
   const handleMouseDown: MouseEventHandler = (event: MouseEvent) => {
     const { clientX, clientY } = event;
     if (selectedTool === "Selection") {
@@ -258,6 +256,7 @@ const App = () => {
           offsetY: clientY - element.y1,
           pathOffset,
         });
+        setElements((prev) => prev);
 
         if (element.position === "inside") setAction("moving");
         else setAction("resizing");
@@ -355,7 +354,9 @@ const App = () => {
         <TopBar
           selected={selectedTool}
           btnHandler={topBarClickHandler}
-          clearHandler={() => setElements([])}
+          clearHandler={clearHistory}
+          undoHandler={undo}
+          redoHandler={redo}
         />
         <canvas
           id="canvas"
