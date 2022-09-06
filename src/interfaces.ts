@@ -9,7 +9,7 @@ export interface IElement {
   x2: number;
   y1: number;
   y2: number;
-  roughElement: Drawable;
+  elementComponent: Drawable | Path2D;
   path: Array<Point>;
   type: string;
 }

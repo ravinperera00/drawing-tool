@@ -5,6 +5,7 @@ import {
   useLayoutEffect,
   useState,
 } from "react";
+import getStroke from "perfect-freehand";
 import { TopBar } from "./components";
 import rough from "roughjs/bundled/rough.esm";
 import { RoughGenerator } from "roughjs/bin/generator";
@@ -28,22 +29,27 @@ const createElement = (
   type: string,
   path: Array<Point>
 ) => {
-  let roughElement;
+  let elementComponent;
   switch (type) {
     case "Line":
-      roughElement = generator.line(x1, y1, x2, y2);
+      elementComponent = generator.line(x1, y1, x2, y2);
       break;
     case "Box":
-      roughElement = generator.rectangle(x1, y1, x2 - x1, y2 - y1);
+      elementComponent = generator.rectangle(x1, y1, x2 - x1, y2 - y1);
+      break;
+    case "Pencil":
+      elementComponent = generator.linearPath(path, { strokeWidth: 2 });
       break;
     case "Pen":
-      roughElement = generator.linearPath(path, { strokeWidth: 2 });
+      const stroke = getStroke(path);
+      const pathData = getSvgPathFromStroke(stroke);
+      elementComponent = new Path2D(pathData);
       break;
     default:
-      roughElement = generator.line(x1, y1, x2, y2);
+      throw new Error(`Type not recognized: ${type}`);
   }
 
-  return { id, x1, y1, x2, y2, roughElement, path, type };
+  return { id, x1, y1, x2, y2, elementComponent, path, type };
 };
 
 const distance = (a: IDistanceArg, b: IDistanceArg) =>
@@ -68,7 +74,7 @@ const positionWithinElement = (x: number, y: number, element: IElement) => {
     const br = nearPoint(x, y, x2, y2, "br");
     const inside = x >= x1 && x <= x2 && y >= y1 && y <= y2 ? "inside" : null;
     return tl || bl || tr || br || inside;
-  } else if (element.type === "Pen") {
+  } else if (element.type === "Pencil" || element.type === "Pen") {
     let inside = null;
     for (let i = 0; i < element.path.length - 1; i++) {
       const point1 = element.path[i];
@@ -111,6 +117,22 @@ const cursorAtPosition = (position: string) => {
   }
 };
 
+const getSvgPathFromStroke = (stroke: any) => {
+  if (!stroke.length) return "";
+
+  const d = stroke.reduce(
+    (acc: any, [x0, y0]: any, i: any, arr: any) => {
+      const [x1, y1] = arr[(i + 1) % arr.length];
+      acc.push(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
+      return acc;
+    },
+    ["M", ...stroke[0], "Q"]
+  );
+
+  d.push("Z");
+  return d.join(" ");
+};
+
 const resizedCoordinates = (
   clientX: number,
   clientY: number,
@@ -148,12 +170,29 @@ const getElementAtPosition = (
     .find((element) => element.position !== null);
 };
 
+const drawElement = (
+  element: IElement,
+  roughCanvas: any,
+  context: CanvasRenderingContext2D
+) => {
+  switch (element.type) {
+    case "Pen":
+      const stroke = getStroke(element.path);
+      const pathData = getSvgPathFromStroke(stroke);
+      const myPath = new Path2D(pathData);
+      context.fill(myPath);
+      break;
+    default:
+      roughCanvas.draw(element.elementComponent);
+  }
+};
+
 const App = () => {
   const [elements, setElements, undo, redo, clearHistory] = useHistory(
     [] as Array<IElement>
   );
   const [action, setAction] = useState<TAction>("none");
-  const [selectedTool, setSelectedTool] = useState<string>("Line");
+  const [selectedTool, setSelectedTool] = useState<string>("Pen");
   const [selectedElement, setSelectedElement] = useState<
     (IElement & ISelectedElement) | null
   >();
@@ -181,7 +220,7 @@ const App = () => {
       path
     );
     const copyElements = [...elements];
-    copyElements[id] = updatedElement;
+    copyElements[id] = { ...updatedElement, path };
     setElements(copyElements, true);
   };
 
@@ -199,7 +238,7 @@ const App = () => {
       else {
         return { x1: x2, x2: x1, y1: y2, y2: y1, path: element.path };
       }
-    } else if (element.type === "Pen") {
+    } else if (element.type === "Pencil" || element.type === "Pen") {
       if (x1 < x2 || (x1 === x2 && y2 <= y1))
         return { x1, x2, y1, y2, path: element.path };
       else {
@@ -216,8 +255,8 @@ const App = () => {
     const context = canvas.getContext("2d");
     context?.clearRect(0, 0, canvas.width, canvas.height);
     const roughCanvas = rough.canvas(canvas);
-    elements.forEach(({ roughElement }) => {
-      roughCanvas.draw(roughElement);
+    elements.forEach((element) => {
+      drawElement(element, roughCanvas, context!);
     });
   }, [elements]);
 
@@ -244,7 +283,7 @@ const App = () => {
       const element = getElementAtPosition(clientX, clientY, elements);
       if (element) {
         let pathOffset = [];
-        if (element.type === "Pen") {
+        if (element.type === "Pencil" || element.type === "Pen") {
           const path = element.path;
           for (let i = 0; i < element.path.length; i++) {
             pathOffset.push([clientX - path[i][0], clientY - path[i][1]]);
@@ -311,14 +350,24 @@ const App = () => {
       const newY = clientY - offsetY;
       const width = x2 - x1;
       const height = y2 - y1;
-      if (type === "Pen") {
-        for (let i = 0; i < path.length; i++) {
-          path[i][0] = clientX - pathOffset[i][0];
-          path[i][1] = clientY - pathOffset[i][1];
-        }
+      let newPoints: Point[] = [];
+      if (type === "Pencil" || type === "Pen") {
+        newPoints = path.map((point, i) => {
+          return [
+            clientX - pathOffset[i][0],
+            clientY - pathOffset[i][1],
+          ] as Point;
+        });
       }
-
-      updateElement(id, newX, newY, newX + width, newY + height, type, path);
+      updateElement(
+        id,
+        newX,
+        newY,
+        newX + width,
+        newY + height,
+        type,
+        newPoints
+      );
     } else if (action === "resizing") {
       if (!selectedElement) return;
       const { id, position, type, path, ...coordinates } = selectedElement;
@@ -338,11 +387,13 @@ const App = () => {
   const handleMouseUp: MouseEventHandler = (event: MouseEvent) => {
     if (action === "drawing" || action === "resizing") {
       if (!selectedElement) return;
-      const { id, type } = elements[selectedElement.id];
-      const { x1, y1, x2, y2, path } = adjustElementCoordinates(
-        elements[selectedElement.id]
-      );
-      updateElement(id, x1, y1, x2, y2, type, path);
+      if (selectedElement.type !== "Pen" && selectedElement.type !== "Pencil") {
+        const { id, type } = elements[selectedElement.id];
+        const { x1, y1, x2, y2, path } = adjustElementCoordinates(
+          elements[selectedElement.id]
+        );
+        updateElement(id, x1, y1, x2, y2, type, path);
+      }
     }
     setAction("none");
     setSelectedElement(null);
