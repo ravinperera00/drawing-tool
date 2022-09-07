@@ -353,6 +353,7 @@ const App = () => {
     if (selectedTool === "Eraser") {
       eraseItemOnCursor(clientX, clientY);
       setAction("erasing");
+      return;
     }
     if (selectedTool === "Selection") {
       const element = getElementAtPosition(clientX, clientY, elements);
