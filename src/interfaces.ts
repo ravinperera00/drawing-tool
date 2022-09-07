@@ -1,7 +1,13 @@
 import { Drawable } from "roughjs/bin/core";
 import { Point } from "roughjs/bin/geometry";
 
-export type TAction = "drawing" | "moving" | "none" | "resizing";
+export type TAction =
+  | "drawing"
+  | "moving"
+  | "none"
+  | "resizing"
+  | "writing"
+  | "erasing";
 
 export interface IElement {
   id: number;
@@ -12,6 +18,7 @@ export interface IElement {
   elementComponent: Drawable | Path2D;
   path: Array<Point>;
   type: string;
+  text: string;
 }
 
 export interface IDistanceArg {

@@ -1,8 +1,10 @@
 import {
+  FocusEventHandler,
   MouseEvent,
   MouseEventHandler,
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
 } from "react";
 import getStroke from "perfect-freehand";
@@ -17,6 +19,7 @@ import {
   TAction,
 } from "./interfaces";
 import { useHistory } from "./hooks/useHistory";
+import { Drawable } from "roughjs/bin/core";
 
 const generator: RoughGenerator = rough.generator();
 
@@ -27,7 +30,8 @@ const createElement = (
   x2: number,
   y2: number,
   type: string,
-  path: Array<Point>
+  path: Array<Point>,
+  text: string
 ) => {
   let elementComponent;
   switch (type) {
@@ -45,11 +49,18 @@ const createElement = (
       const pathData = getSvgPathFromStroke(stroke);
       elementComponent = new Path2D(pathData);
       break;
+    case "Text":
+      const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+
+      x2 = (canvas.getContext("2d")?.measureText(text).width as number) + x1;
+      y2 = y1 + 24;
+      elementComponent = {} as Drawable;
+      break;
     default:
       throw new Error(`Type not recognized: ${type}`);
   }
 
-  return { id, x1, y1, x2, y2, elementComponent, path, type };
+  return { id, x1, y1, x2, y2, elementComponent, path, type, text };
 };
 
 const distance = (a: IDistanceArg, b: IDistanceArg) =>
@@ -66,13 +77,41 @@ const nearPoint = (
 };
 
 const positionWithinElement = (x: number, y: number, element: IElement) => {
-  if (element.type === "Box") {
+  if (element.type === "Box" || element.type === "Text") {
     const { x1, x2, y1, y2 } = element;
     const tl = nearPoint(x, y, x1, y1, "tl");
     const bl = nearPoint(x, y, x1, y2, "bl");
     const tr = nearPoint(x, y, x2, y1, "tr");
     const br = nearPoint(x, y, x2, y2, "br");
-    const inside = x >= x1 && x <= x2 && y >= y1 && y <= y2 ? "inside" : null;
+    let inside = x >= x1 && x <= x2 && y >= y1 && y <= y2 ? "inside" : null;
+    if (element.type === "Text") {
+      const tlPos = { x: x1, y: y1 };
+      const blPos = { x: x1, y: y2 };
+      const trPos = { x: x2, y: y1 };
+      const brPos = { x: x2, y: y2 };
+      const cPos = { x, y };
+      const offset1 =
+        distance(tlPos, trPos) -
+        (distance(tlPos, cPos) + distance(trPos, cPos));
+      const offset2 =
+        distance(tlPos, blPos) -
+        (distance(tlPos, cPos) + distance(blPos, cPos));
+      const offset3 =
+        distance(brPos, trPos) -
+        (distance(brPos, cPos) + distance(trPos, cPos));
+      const offset4 =
+        distance(blPos, brPos) -
+        (distance(blPos, cPos) + distance(brPos, cPos));
+      const outline =
+        Math.abs(offset1) < 1 ||
+        Math.abs(offset2) < 1 ||
+        Math.abs(offset3) < 1 ||
+        Math.abs(offset4) < 1
+          ? "inside"
+          : null;
+      inside = inside ? "edit" : null;
+      return outline || inside;
+    }
     return tl || bl || tr || br || inside;
   } else if (element.type === "Pencil" || element.type === "Pen") {
     let inside = null;
@@ -112,6 +151,8 @@ const cursorAtPosition = (position: string) => {
     case "tr":
     case "bl":
       return "nesw-resize";
+    case "edit":
+      return "text";
     default:
       return "move";
   }
@@ -182,6 +223,9 @@ const drawElement = (
       const myPath = new Path2D(pathData);
       context.fill(myPath);
       break;
+    case "Text":
+      context.fillText(element.text, element.x1, element.y1);
+      break;
     default:
       roughCanvas.draw(element.elementComponent);
   }
@@ -196,6 +240,7 @@ const App = () => {
   const [selectedElement, setSelectedElement] = useState<
     (IElement & ISelectedElement) | null
   >();
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
 
   const topBarClickHandler = (type: string) => {
     setSelectedTool(type);
@@ -208,7 +253,8 @@ const App = () => {
     clientX: number,
     clientY: number,
     type: string,
-    path: Array<Point>
+    path: Array<Point>,
+    options: { text: string } | null = null
   ) => {
     const updatedElement = createElement(
       id,
@@ -217,7 +263,8 @@ const App = () => {
       clientX,
       clientY,
       type,
-      path
+      path,
+      options ? options.text : ""
     );
     const copyElements = [...elements];
     copyElements[id] = { ...updatedElement, path };
@@ -253,12 +300,16 @@ const App = () => {
     const canvas = document.getElementById("canvas") as HTMLCanvasElement;
     if (!canvas) return;
     const context = canvas.getContext("2d");
+    if (!context) return;
+    context.textBaseline = "top";
+    context.font = "24px sans-serif";
     context?.clearRect(0, 0, canvas.width, canvas.height);
     const roughCanvas = rough.canvas(canvas);
     elements.forEach((element) => {
+      if (action === "writing" && selectedElement?.id === element.id) return;
       drawElement(element, roughCanvas, context!);
     });
-  }, [elements]);
+  }, [elements, action, selectedElement]);
 
   useEffect(() => {
     const undoRedoFuncton = (e: KeyboardEvent) => {
@@ -277,8 +328,32 @@ const App = () => {
     };
   }, [redo, undo]);
 
+  useEffect(() => {
+    const textArea = textAreaRef.current;
+    if (action === "writing") {
+      setTimeout(() => {
+        if (textArea) {
+          textArea?.focus();
+          textArea.value = selectedElement?.text || "";
+        }
+      }, 50);
+    }
+  }, [selectedElement, action]);
+
+  const eraseItemOnCursor = (clientX: number, clientY: number) => {
+    const element = getElementAtPosition(clientX, clientY, elements);
+    if (element)
+      setElements((prev) => prev.filter((item) => element?.id !== item.id));
+    return;
+  };
+
   const handleMouseDown: MouseEventHandler = (event: MouseEvent) => {
+    if (action === "writing") return;
     const { clientX, clientY } = event;
+    if (selectedTool === "Eraser") {
+      eraseItemOnCursor(clientX, clientY);
+      setAction("erasing");
+    }
     if (selectedTool === "Selection") {
       const element = getElementAtPosition(clientX, clientY, elements);
       if (element) {
@@ -310,9 +385,11 @@ const App = () => {
         clientX,
         clientY,
         selectedTool,
-        path
+        path,
+        ""
       );
       setElements((prev: Array<IElement>) => [...prev, element]);
+
       setSelectedElement({
         ...element,
         offsetX: -1,
@@ -320,12 +397,23 @@ const App = () => {
         pathOffset: [[-1, -1]],
         position: null,
       });
-      setAction("drawing");
+
+      if (selectedTool === "Text") {
+        setAction("writing");
+      } else {
+        setAction("drawing");
+      }
     }
   };
 
   const handleMouseMove: MouseEventHandler = (event: MouseEvent) => {
+    if (action === "writing") return;
     const { clientX, clientY } = event;
+
+    if (selectedTool === "Eraser" && action === "erasing") {
+      eraseItemOnCursor(clientX, clientY);
+    }
+
     if (selectedTool === "Selection") {
       const eventElement = event.target as HTMLCanvasElement;
 
@@ -343,8 +431,19 @@ const App = () => {
       updateElement(id, x1, y1, clientX, clientY, type, path);
     } else if (action === "moving") {
       if (!selectedElement) return;
-      const { id, x1, x2, y1, y2, type, path, offsetX, offsetY, pathOffset } =
-        selectedElement;
+      const {
+        id,
+        x1,
+        x2,
+        y1,
+        y2,
+        type,
+        path,
+        offsetX,
+        offsetY,
+        pathOffset,
+        text,
+      } = selectedElement;
 
       const newX = clientX - offsetX;
       const newY = clientY - offsetY;
@@ -366,7 +465,8 @@ const App = () => {
         newX + width,
         newY + height,
         type,
-        newPoints
+        newPoints,
+        { text }
       );
     } else if (action === "resizing") {
       if (!selectedElement) return;
@@ -385,8 +485,17 @@ const App = () => {
   };
 
   const handleMouseUp: MouseEventHandler = (event: MouseEvent) => {
+    const { clientX, clientY } = event;
+    if (!selectedElement) return;
+    if (
+      selectedElement.type === "Text" &&
+      clientX - selectedElement.offsetX === selectedElement.x1 &&
+      clientY - selectedElement.offsetY === selectedElement.y1
+    ) {
+      setAction("writing");
+      return;
+    }
     if (action === "drawing" || action === "resizing") {
-      if (!selectedElement) return;
       if (selectedElement.type !== "Pen" && selectedElement.type !== "Pencil") {
         const { id, type } = elements[selectedElement.id];
         const { x1, y1, x2, y2, path } = adjustElementCoordinates(
@@ -395,8 +504,18 @@ const App = () => {
         updateElement(id, x1, y1, x2, y2, type, path);
       }
     }
+    if (action === "writing") return;
     setAction("none");
     setSelectedElement(null);
+  };
+
+  const handleBlur: FocusEventHandler = (
+    event: React.FocusEvent<HTMLInputElement, Element>
+  ) => {
+    const { x1, y1, type, id, x2, y2, path } = selectedElement!;
+    setAction("none");
+    setSelectedElement(null);
+    updateElement(id, x1, y1, x2, y2, type, path, { text: event.target.value });
   };
 
   return (
@@ -409,6 +528,31 @@ const App = () => {
           undoHandler={undo}
           redoHandler={redo}
         />
+
+        {action === "writing" && (
+          <>
+            <textarea
+              ref={textAreaRef}
+              onBlur={handleBlur}
+              style={{
+                position: "fixed",
+                left: `${selectedElement?.x1}px`,
+                top: `${selectedElement?.y1! - 3}px`,
+                font: "24px sans-serif",
+                margin: "0",
+                padding: "0",
+                border: "0",
+                outline: "0",
+                overflow: "hidden",
+                resize: "horizontal",
+                whiteSpace: "pre",
+                background: "transparent",
+              }}
+              className="active:border-gray-400 focus:border-1 focus:border-solid border-1"
+            ></textarea>
+          </>
+        )}
+
         <canvas
           id="canvas"
           width={window.innerWidth}
