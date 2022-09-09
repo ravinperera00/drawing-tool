@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import getStroke from "perfect-freehand";
+import { v4 as uuidv4 } from "uuid";
 import { TopBar } from "./components";
 import rough from "roughjs/bundled/rough.esm";
 import { RoughGenerator } from "roughjs/bin/generator";
@@ -24,7 +25,7 @@ import { Drawable } from "roughjs/bin/core";
 const generator: RoughGenerator = rough.generator();
 
 const createElement = (
-  id: number,
+  id: string,
   x1: number,
   y1: number,
   x2: number,
@@ -247,7 +248,7 @@ const App = () => {
   };
 
   const updateElement = (
-    id: number,
+    id: string,
     x1: number,
     y1: number,
     clientX: number,
@@ -267,7 +268,11 @@ const App = () => {
       options ? options.text : ""
     );
     const copyElements = [...elements];
-    copyElements[id] = { ...updatedElement, path };
+    copyElements.forEach((element, index) => {
+      if (element.id === id) {
+        copyElements[index] = { ...updatedElement, path };
+      }
+    });
     setElements(copyElements, true);
   };
 
@@ -378,7 +383,7 @@ const App = () => {
       }
     } else {
       const path: Point[] = [[clientX, clientY]];
-      const id = elements.length;
+      const id = uuidv4();
       const element = createElement(
         id,
         clientX,
@@ -487,7 +492,11 @@ const App = () => {
 
   const handleMouseUp: MouseEventHandler = (event: MouseEvent) => {
     const { clientX, clientY } = event;
-    if (!selectedElement) return;
+    if (!selectedElement) {
+      setAction("none");
+      setSelectedElement(null);
+      return;
+    }
     if (
       selectedElement.type === "Text" &&
       clientX - selectedElement.offsetX === selectedElement.x1 &&
@@ -498,10 +507,12 @@ const App = () => {
     }
     if (action === "drawing" || action === "resizing") {
       if (selectedElement.type !== "Pen" && selectedElement.type !== "Pencil") {
-        const { id, type } = elements[selectedElement.id];
-        const { x1, y1, x2, y2, path } = adjustElementCoordinates(
-          elements[selectedElement.id]
+        const foundElement = elements.find(
+          (element) => element.id === selectedElement.id
         );
+        if (!foundElement) return;
+        const { id, type } = foundElement;
+        const { x1, y1, x2, y2, path } = adjustElementCoordinates(foundElement);
         updateElement(id, x1, y1, x2, y2, type, path);
       }
     }

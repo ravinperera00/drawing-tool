@@ -10,7 +10,7 @@ export type TAction =
   | "erasing";
 
 export interface IElement {
-  id: number;
+  id: string;
   x1: number;
   x2: number;
   y1: number;
